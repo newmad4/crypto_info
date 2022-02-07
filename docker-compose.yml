@@ -1,0 +1,99 @@
+version: "3.8"
+services:
+
+  app:
+    container_name: crypto_backend
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    restart: always
+    depends_on:
+      - postgresql
+      - rabbitmq
+    volumes:
+      - ./src/:/usr/src/app/
+    ports:
+      - 8000:8000
+    command:
+      - "gunicorn"
+      - "--bind"
+      - ":8000"
+      - "crypto_info.wsgi:application"
+
+  celery-beat:
+    container_name: crypto-celery-beat
+    build: .
+    restart: always
+    depends_on:
+      - postgresql
+      - rabbitmq
+    volumes:
+      - ./src/:/usr/src/app/
+    command:
+      - "celery"
+      - "-A"
+      - "crypto_info"
+      - "beat"
+      - "-l"
+      - "info"
+
+  celery-worker:
+    container_name: crypto-celery-worker
+    build: .
+    restart: always
+    depends_on:
+      - postgresql
+      - rabbitmq
+    volumes:
+      - ./src/:/usr/src/app/
+    command:
+      - "celery"
+      - "-A"
+      - "crypto_info"
+      - "worker"
+      - "-l"
+      - "info"
+
+  postgresql:
+    image: postgres:13
+    container_name: crypto_psql
+    volumes:
+      - ./postgres/data:/var/lib/postgresql
+    ports:
+      - 5434:5432
+    environment:
+      POSTGRES_USER: crypto_info_user
+      POSTGRES_PASSWORD: crypto_info_password
+      POSTGRES_DB: crypto_info_db
+      POSTGRES_PORT: 5432
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: crypto_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - 9090:5672
+      - 9091:15672
+
+  flower:
+    image: mher/flower:latest
+    container_name: crypto_flower
+    environment:
+      - FLOWER_BASIC_AUTH=guest:guest
+      - CELERY_BROKER_URL=amqp://guest:guest@rabbitmq:5672//
+      - FLOWER_BROKER_API_URL=http://guest:/guest@rabbitmq:15672/api
+      - FLOWER_PORT=5555
+    volumes:
+      - ./src/:/usr/src/app/
+    command:
+      - "celery"
+      - "flower"
+      - "-A"
+      - "crypto_info"
+    ports:
+      - 5555:5555
+    depends_on:
+      - rabbitmq
+      - celery-worker
